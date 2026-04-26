@@ -1,7 +1,6 @@
-from requests.packages import target
-from fastapi import requests
 import io
 import time
+import queue
 import threading
 import requests
 from fastapi import FastAPI
@@ -17,12 +16,38 @@ NODE_BACKEND_URL = "http://localhost:3000/api/detections"
 
 # Single detector instance shared across requests
 # We don't want to open the camera twice
-detector = Detector(source=0)
+detector = Detector(source=0)   # or "footage.mp4"
+
+# Queue holds detection payloads waiting to be sent to Node
+# maxsize=5 means if Node is slow, we drop old detections 
+# rather than building up a backlog that eats memory
+detection_queue = queue.Queue(maxsize=5)
+
+def backend_worker():
+    """
+    Single persistent thread that reads from the queue and POSTs to Node.
+    Runs forever in the background.
+    Much cheaper than spawning a thread per frame.
+    """
+    while True:
+        try:
+            payload = detection_queue.get(timeout=1)
+            try:
+                requests.post(NODE_BACKEND_URL, json=payload, timeout=2)
+            except Exception:
+                pass # Node not running yet - slip silently
+            continue # No detections ready, keep waiting
+        except queue.Empty:
+            continue
+
 
 @app.on_event("startup")
 def startup():
     # opens camera/video when fastapi starts.
     detector.start()
+    # Start the single background worker thread once
+    worker = threading.Thread(target = backend_worker, daemon = True)
+    worker.start()
 
 @app.on_event("shutdown")
 def shutdown():
@@ -58,32 +83,19 @@ def push_to_backend(detections: list, frame_time: str):
         print(f"[Push] Failed to send detections: {e}")
 
 def mjpeg_stream():
-    """
-    Generator for StreamingResponse.
-    
-    MJPEG format is dead simple:
-    Each frame is a JPEG wrapped in a multipart HTTP boundary.
-    The browser treats the <img> tag as a live video stream.
-    
-    Format:
-    --frame
-    Content-Type: image/jpeg
-    
-    <jpeg bytes>
-    --frame
-    Content-Type: image/jpeg
-    """
     for jpeg_bytes, detections in detector.generate_frames():
-        # Push detections to Node in background (non-blocking)
-        frame_time = time.strftime("%Y-%m-%dT%H:%M:%S")
-        thread = threading.Thread(
-            target = push_to_backend,
-            args = (detections, frame_time),
-            daemon = True
-        )
-        thread.start()
+        # Only enqueue if there are detections AND queue isn't full
+        # put_nowait raises if full — we just skip that frame's data
+        if detections:
+            try:
+                detection_queue.put_nowait({
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "detections": detections,
+                    "source": str(detector.source)
+                })
+            except queue.Full:
+                pass  # backend is slow, drop this frame's data, keep streaming
 
-        # Yield MJPEG frame to whoever is watching the stream
         yield (
             b"--frame\r\n"
             b"Content-Type: image/jpeg\r\n\r\n"

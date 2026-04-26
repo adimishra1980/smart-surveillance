@@ -42,6 +42,9 @@ class Detector:
         the client disconnects or source ends.
         """
 
+        frame_count = 0
+        last_detections = []  # reuse previous detections on skipped frames
+
         while True:
             ret, frame = self.cap.read()
 
@@ -55,43 +58,42 @@ class Detector:
                     print("[Detector] Frame capture failed. Stopping.")
                     break
 
-            # Run YOLO inference on the frame
-            results = self.model(frame, verbose=False)
-            # verbose=False stops YOLO from printing to console every frame
+            frame_count += 1
 
-            # Extract detections
-            detections = []
-            for box in results[0].boxes:
-                confidence = float(box.conf[0])
-                
-                if confidence < 0.5:  # skip low confidence detections
-                    continue
-
-                class_id = int(box.cls[0])
-                label = self.model.names[class_id]
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-
-
-                detections.append({
-                    "object": label,
-                    "confidence": round(confidence, 4),
-                    "bounding_box": {
-                        "x1": round(x1, 1),
-                        "y1": round(y1, 1),
-                        "x2": round(x2, 1),
-                        "y2": round(y2, 1),
-                    }
-                })
+            # Run YOLO every 2nd frame only
+            # Skipped frames reuse the last detection result
             
-            # Draw bounding boxes on frame (same as results[0].plot())
-            annotated_frame = results[0].plot()
+            if frame_count % 2 == 0:
+                # results = self.model(frame, verbose=False)
+                results = self.model(frame, verbose=False, device=self.device)
+                last_detections = []
 
-            # Encode frame as JPEG bytes
-            # This is what gets pushed to the browser as MJPEG
-            success, buffer = cv2.imencode(".jpg", annotated_frame)
+                for box in results[0].boxes:
+                    confidence = float(box.conf[0])
+                    if confidence < 0.5:
+                        continue
+                    class_id = int(box.cls[0])
+                    label = self.model.names[class_id]
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    last_detections.append({
+                        "object": label,
+                        "confidence": round(confidence, 4),
+                        "bounding_box": {
+                            "x1": round(x1, 1), "y1": round(y1, 1),
+                            "x2": round(x2, 1), "y2": round(y2, 1),
+                        }
+                    })
+                annotated_frame = results[0].plot()
+            else:
+                # Skip inference — just send raw frame
+                annotated_frame = frame
+                
+                
+            success, buffer = cv2.imencode(
+                ".jpg", annotated_frame,
+                [cv2.IMWRITE_JPEG_QUALITY, 50]
+            )
             if not success:
                 continue
-
-            jpeg_bytes = buffer.tobytes()
-
-            yield jpeg_bytes, detections
+                
+            yield buffer.tobytes(), last_detections
