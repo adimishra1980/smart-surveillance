@@ -13,7 +13,7 @@ app = FastAPI(title = "Smart Surveillance AI Service")
 
 # Config — Node backend URL
 # When Node backend isn't running yet, detections just get skipped gracefully
-NODE_BACKEND_URL = "http://localhost:8000/api/detections"
+NODE_BACKEND_URL = "http://localhost:3000/api/detections"
 
 # Single detector instance shared across requests
 # We don't want to open the camera twice
