@@ -4,10 +4,41 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model Detection {
+  id        String           @id @default(uuid())
+  sessionId String
+  session   DetectionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  object     String
+  confidence Float
+
+  x1 Float
+  y1 Float
+  x2 Float
+  y2 Float
+
+  detectedAt DateTime @default(now())
+
+  // prevents duplicate inserts for same frame/object
+  @@unique([sessionId, object, x1, y1, x2, y2, detectedAt])
+  @@index([sessionId])
+  @@index([object])
+  @@index([detectedAt])
+  @@map("detections")
+}
+
+model DetectionSession {
+  id         String      @id @default(uuid())
+  source     String // "0" for webcam, "footage.mp4" for file
+  startedAt  DateTime    @default(now())
+  detections Detection[]
+
+  @@map("detection_sessions")
 }

@@ -1,32 +1,29 @@
-import express, { Request } from "express";
+import express, { Request, Response } from "express";
+import dotenv from "dotenv";
 import cors from "cors";
-import multer from "multer";
-import axois from "axios";
-import FormData from "form-data";
-import fs from "fs";
+
+import detectionsRoutes from "./routes/detections.routes";
+
+dotenv.config();
 
 const app = express();
-const upload = multer({ dest: "uploads/" });
+const PORT = process.env.PORT || 3000;
 
 app.use(
   cors({
     origin: "*",
   }),
 );
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
-app.post(
-  "/detect",
-  upload.single("image"),
-  // async (req: Request, res: Response) => {
-  //   try {
-        
-  //   } catch (error) {
-        
-  //   }
-  // },
-);
+// Routes
+app.use("/detections", detectionsRoutes);
 
-app.listen(3000, () => {
-  console.log("Server is running on port 3000");
+// Health check
+app.get("/health", (_req: Request, res: Response) => {
+  res.json({ status: "ok", service: "api-backend" });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
