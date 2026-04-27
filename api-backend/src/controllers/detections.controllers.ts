@@ -1,51 +1,65 @@
 import { Request, Response } from "express";
 import db from "../db";
+import { requestSchema } from "../validations/detections.validations";
+
+// helper function
+const safeDate = (timestamp?: string | number) => {
+  if (!timestamp) return new Date();
+  const d = new Date(timestamp);
+  return isNaN(d.getTime()) ? new Date() : d;
+};
 
 // POST /detections
 export const createDetections = async (req: Request, res: Response) => {
-  const { timestamp, detections, source, sessionId } = req.body;
+  const parsed = requestSchema.safeParse(req.body);
 
-  if (!detections || !Array.isArray(detections)) {
-    return res.status(400).json({ error: "detections array required" });
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid payload",
+      details: parsed.error.flatten(),
+    });
   }
 
-  try {
-    let session = await db.detectionSession.findUnique({
-      where: { id: sessionId },
-    });
+  const { timestamp, detections, source, sessionId } = parsed.data;
 
-    if (!session) {
-      session = await db.detectionSession.create({
-        data: {
-          id: sessionId,
-          source: source || "unknown",
-        },
-      });
-    }
+  try {
+    // Upsert session (better than find+create)
+    const session = await db.detectionSession.upsert({
+      where: { id: sessionId },
+      update: {},
+      create: {
+        id: sessionId,
+        source: source || "unknown",
+      },
+    });
 
     if (detections.length === 0) {
       return res.json({ saved: 0 });
     }
 
-    await db.detection.createMany({
-      data: detections.map((d: any) => ({
-        sessionId: session!.id,
+    const detectedAt = safeDate(timestamp);
+
+    // Batch insert (fast)
+    const result = await db.detection.createMany({
+      data: detections.map((d) => ({
+        sessionId: session.id,
         object: d.object,
         confidence: d.confidence,
         x1: d.bounding_box.x1,
         y1: d.bounding_box.y1,
         x2: d.bounding_box.x2,
         y2: d.bounding_box.y2,
-        detectedAt: new Date(timestamp),
+        detectedAt,
       })),
+      skipDuplicates: true, // prevents duplicates
     });
 
     return res.json({
-      saved: detections.length,
+      saved: result.count,
       sessionId: session.id,
     });
   } catch (error) {
-    console.error("[Detections] Error saving:", error);
+    console.error("[Detections] Error:", error);
     return res.status(500).json({ error: "Failed to save detections" });
   }
 };
@@ -54,6 +68,8 @@ export const createDetections = async (req: Request, res: Response) => {
 export const getDetections = async (req: Request, res: Response) => {
   const { object, sessionId, limit = "50" } = req.query;
 
+  const take = Math.min(parseInt(String(limit)) || 50, 500); // cap limit
+
   try {
     const detections = await db.detection.findMany({
       where: {
@@ -61,7 +77,7 @@ export const getDetections = async (req: Request, res: Response) => {
         ...(sessionId ? { sessionId: String(sessionId) } : {}),
       },
       orderBy: { detectedAt: "desc" },
-      take: parseInt(String(limit)),
+      take,
       include: {
         session: {
           select: { source: true, startedAt: true },
@@ -70,7 +86,7 @@ export const getDetections = async (req: Request, res: Response) => {
     });
 
     return res.json(detections);
-  } catch (error) {
+  } catch {
     return res.status(500).json({ error: "Failed to fetch detections" });
   }
 };
@@ -96,7 +112,7 @@ export const getDetectionStats = async (_req: Request, res: Response) => {
         count: b._count.object,
       })),
     });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ error: "Failed to fetch stats" });
   }
 };

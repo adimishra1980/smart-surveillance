@@ -14,10 +14,10 @@ app.use(
     origin: "*",
   }),
 );
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "1mb" }));
 
 // Routes
-app.use("/detections", detectionsRoutes);
+app.use("/api/detections", detectionsRoutes);
 
 // Health check
 app.get("/health", (_req: Request, res: Response) => {
