@@ -1,6 +1,7 @@
 import io
 import time
 import queue
+import uuid
 import threading
 import requests
 from fastapi import FastAPI
@@ -22,6 +23,8 @@ detector = Detector(source=0)   # or "footage.mp4"
 # maxsize=5 means if Node is slow, we drop old detections 
 # rather than building up a backlog that eats memory
 detection_queue = queue.Queue(maxsize=5)
+
+SESSION_ID = str(uuid.uuid4())
 
 def backend_worker():
     """
@@ -91,7 +94,8 @@ def mjpeg_stream():
                 detection_queue.put_nowait({
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
                     "detections": detections,
-                    "source": str(detector.source)
+                    "source": str(detector.source),
+                    "sessionId": SESSION_ID
                 })
             except queue.Full:
                 pass  # backend is slow, drop this frame's data, keep streaming
