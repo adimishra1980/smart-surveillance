@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 
 import detectionsRoutes from "./routes/detections.routes";
+import sessionsRoutes from "./routes/sessions.routes";
 
 dotenv.config();
 
@@ -18,6 +19,7 @@ app.use(express.json({ limit: "1mb" }));
 
 // Routes
 app.use("/api/detections", detectionsRoutes);
+app.use("/api/sessions", sessionsRoutes);
 
 // Health check
 app.get("/health", (_req: Request, res: Response) => {
